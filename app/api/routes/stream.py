@@ -65,3 +65,31 @@ async def websocket_stream(websocket: WebSocket, camera_id: int):
         pass
     finally:
         manager.unsubscribe(camera_id, q)
+
+
+@router.get("/events")
+async def violation_events(request: Request):
+    """Server-Sent Events: one `violation` message per newly recorded incident."""
+    manager: CameraManager = get_camera_manager(request)
+
+    async def generate():
+        q = manager.events.subscribe()
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"event: violation\ndata: {json.dumps(data)}\n\n"
+        finally:
+            manager.events.unsubscribe(q)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

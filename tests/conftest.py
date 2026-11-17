@@ -54,6 +54,7 @@ async def test_client(db_session: AsyncSession):
     mock_manager.start_camera = AsyncMock(return_value=True)
     mock_manager.stop_camera = AsyncMock(return_value=True)
     mock_manager.get_latest_frame.return_value = None
+    mock_manager.status.return_value = "stopped"
     mock_manager._entries = {}
 
     app.state.detector = mock_detector

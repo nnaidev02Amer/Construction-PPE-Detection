@@ -38,11 +38,18 @@ class Detection:
 
 
 class PPEDetector:
-    def __init__(self, model_path: str, confidence: float = 0.5) -> None:
+    # Classes whose *presence* clears a worker. They are small and often scored below the
+    # general threshold on distant workers, which caused false "No Hardhat" alerts.
+    PPE_ITEM_CLASSES = ("Hardhat", "Safety Vest")
+
+    def __init__(
+        self, model_path: str, confidence: float = 0.5, ppe_confidence: float | None = None
+    ) -> None:
         from ultralytics import YOLO
 
         self.model = YOLO(model_path)
         self.confidence = confidence
+        self.ppe_confidence = ppe_confidence  # None = same threshold as everything else
         logger.info("PPEDetector loaded: %s (conf=%.2f)", model_path, confidence)
 
     @property
@@ -50,7 +57,8 @@ class PPEDetector:
         return self.model.names
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
-        results = self.model(frame, conf=self.confidence, verbose=False)
+        ppe_floor = self.confidence if self.ppe_confidence is None else self.ppe_confidence
+        results = self.model(frame, conf=min(self.confidence, ppe_floor), verbose=False)
         detections: list[Detection] = []
 
         for result in results:
@@ -58,6 +66,11 @@ class PPEDetector:
                 continue
             for box in result.boxes:
                 cls = int(box.cls[0])
+                name = self.model.names[cls]
+                score = float(box.conf[0])
+                needed = ppe_floor if name in self.PPE_ITEM_CLASSES else self.confidence
+                if score < needed:
+                    continue
                 detections.append(
                     Detection(
                         class_id=cls,

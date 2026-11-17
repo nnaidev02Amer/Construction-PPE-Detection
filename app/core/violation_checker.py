@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
 from app.core.detector import Detection
 from app.core.logging import get_logger
 from app.core.ppe_assigner import PersonStatus
+from app.core.violation_types import HELMET, classify
 
 logger = get_logger(__name__)
 
@@ -16,8 +18,13 @@ class ViolationEvent:
     camera_id: int
     violation_type: str
     confidence: float
-    frame_path: Optional[str] = None
+    frame_path: Optional[str] = None  # relative to FRAMES_DIR
     track_id: Optional[int] = None
+    session_id: Optional[str] = None
+    # Filled in by DatabaseHandler once the row exists
+    db_id: Optional[int] = None
+    camera_name: Optional[str] = None
+    timestamp: Optional[datetime] = None
 
 
 @dataclass
@@ -28,9 +35,12 @@ class _CameraState:
 
 @dataclass
 class _TrackState:
-    last_hardhat_time: float
+    """What one tracked worker is currently doing wrong, and for how long."""
+
+    current_type: Optional[str]  # None = compliant right now
+    since: float  # when current_type began (reset on every change)
     last_seen: float
-    last_alert_time: float = 0.0
+    last_alert: dict[str, float] = field(default_factory=dict)  # per violation type
 
 
 class ViolationChecker:
@@ -90,7 +100,7 @@ class ViolationChecker:
                 )
                 return ViolationEvent(
                     camera_id=camera_id,
-                    violation_type="NO-Hardhat",
+                    violation_type=HELMET,
                     confidence=confidence,
                     frame_path=frame_path,
                 )
@@ -103,38 +113,46 @@ class ViolationChecker:
         persons: list[PersonStatus],
         frame_path: Optional[str] = None,
     ) -> list[ViolationEvent]:
+        """
+        One incident per worker when their PPE status (helmet / vest / both missing) has
+        stayed the same for ``persist_seconds``. A worker missing both items yields a single
+        COMBINED event. Cooldown is per (worker, type), so switching from "no helmet" to
+        "no helmet + no vest" is reported after its own persistence period.
+        """
         now = time.time()
         events: list[ViolationEvent] = []
 
         for status in persons:
             if status.track_id is None:
                 continue
+            vtype = classify(status.has_hardhat, status.has_vest)
             key = (camera_id, status.track_id)
             state = self._track_states.get(key)
             if state is None:
-                state = self._track_states[key] = _TrackState(last_hardhat_time=now, last_seen=now)
+                state = self._track_states[key] = _TrackState(
+                    current_type=vtype, since=now, last_seen=now
+                )
             state.last_seen = now
 
-            if status.has_hardhat:
-                state.last_hardhat_time = now
+            if vtype != state.current_type:  # status changed: restart the timer
+                state.current_type = vtype
+                state.since = now
+            if vtype is None:
                 continue
 
-            time_without_hardhat = now - state.last_hardhat_time
             if (
-                time_without_hardhat >= self.persist_seconds
-                and now - state.last_alert_time >= self.cooldown_seconds
+                now - state.since >= self.persist_seconds
+                and now - state.last_alert.get(vtype, float("-inf")) >= self.cooldown_seconds
             ):
-                state.last_alert_time = now
+                state.last_alert[vtype] = now
                 logger.info(
-                    "Violation detected on camera %d: worker #%d no hardhat for %.1fs",
-                    camera_id,
-                    status.track_id,
-                    time_without_hardhat,
+                    "Violation on camera %d: worker #%d %s for %.1fs",
+                    camera_id, status.track_id, vtype, now - state.since,
                 )
                 events.append(
                     ViolationEvent(
                         camera_id=camera_id,
-                        violation_type="NO-Hardhat",
+                        violation_type=vtype,
                         confidence=status.person.confidence,
                         frame_path=frame_path,
                         track_id=status.track_id,

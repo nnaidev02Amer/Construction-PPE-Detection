@@ -26,9 +26,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialised")
 
+    # Values saved from the dashboard's Settings page override .env
+    from app.core.runtime_settings import load_overrides
+    await load_overrides()
+
     # Load YOLO model once and store on app state
     from app.core.detector import PPEDetector
-    app.state.detector = PPEDetector(settings.MODEL_PATH, settings.DETECTION_CONFIDENCE)
+    app.state.detector = PPEDetector(
+        settings.MODEL_PATH, settings.DETECTION_CONFIDENCE, settings.PPE_ITEM_CONFIDENCE
+    )
     logger.info("YOLO model loaded from %s", settings.MODEL_PATH)
 
     # Optional pose model; fall back to box-only PPE assignment if it can't be loaded
@@ -46,6 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start camera manager
     from app.camera.manager import CameraManager
     app.state.camera_manager = CameraManager(app.state.detector, app.state.pose_estimator)
+    app.state.camera_manager.apply_settings()
     await app.state.camera_manager.start()
     logger.info("Camera manager started")
 
@@ -69,11 +76,17 @@ def create_app() -> FastAPI:
     from app.api.routes.cameras import router as cameras_router
     from app.api.routes.violations import router as violations_router
     from app.api.routes.stream import router as stream_router
+    from app.api.routes.workers import router as workers_router
+    from app.api.routes.reports import router as reports_router
+    from app.api.routes.app_settings import router as settings_router
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(cameras_router, prefix="/api/v1")
     app.include_router(violations_router, prefix="/api/v1")
     app.include_router(stream_router, prefix="/api/v1")
+    app.include_router(workers_router, prefix="/api/v1")
+    app.include_router(reports_router, prefix="/api/v1")
+    app.include_router(settings_router, prefix="/api/v1")
 
     # Serve violation frame images
     os.makedirs(settings.FRAMES_DIR, exist_ok=True)

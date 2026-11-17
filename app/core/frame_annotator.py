@@ -9,7 +9,8 @@ from app.core.ppe_assigner import PersonStatus
 
 COMPLIANT_COLOR = (0, 200, 0)
 NO_VEST_COLOR = (0, 165, 255)
-NO_HARDHAT_COLOR = (0, 0, 255)
+NO_HARDHAT_COLOR = (0, 0, 255)  # red
+CRITICAL_COLOR = (180, 0, 180)  # magenta: helmet AND vest missing
 SKELETON_COLOR = (255, 255, 255)
 
 
@@ -55,7 +56,10 @@ def draw_skeleton(frame: np.ndarray, pose: Pose) -> None:
 
 def draw_person(frame: np.ndarray, status: PersonStatus) -> None:
     p = status.person
-    if not status.has_hardhat:
+    critical = not status.has_hardhat and not status.has_vest
+    if critical:
+        color = CRITICAL_COLOR
+    elif not status.has_hardhat:
         color = NO_HARDHAT_COLOR
     elif not status.has_vest:
         color = NO_VEST_COLOR
@@ -65,22 +69,35 @@ def draw_person(frame: np.ndarray, status: PersonStatus) -> None:
     if status.pose is not None:
         draw_skeleton(frame, status.pose)
 
-    cv2.rectangle(frame, (p.x1, p.y1), (p.x2, p.y2), color, 2)
-    label = f"ID {status.track_id}"
-    if not status.has_hardhat:
-        label += " | No Hardhat"
-    if not status.has_vest:
-        label += " | No Vest"
+    cv2.rectangle(frame, (p.x1, p.y1), (p.x2, p.y2), color, 4 if critical else 2)
+    if critical:
+        label = f"ID {status.track_id} | CRITICAL: No Hardhat + No Vest"
+    else:
+        label = f"ID {status.track_id}"
+        if not status.has_hardhat:
+            label += " | No Hardhat"
+        if not status.has_vest:
+            label += " | No Vest"
     draw_text_with_background(
         frame,
         label,
-        (p.x1, p.y1 - 10),
+        (p.x1, max(p.y1 - 10, 18)),
         font_scale=0.45,
         color=(255, 255, 255),
         bg_color=color,
         alpha=0.8,
         padding=4,
     )
+
+
+def draw_evidence_banner(frame: np.ndarray, lines: list[str], timestamp: str) -> None:
+    """Bottom banner for saved screenshots: what was recorded and when."""
+    h = frame.shape[0]
+    for i, text in enumerate(lines + [timestamp]):
+        draw_text_with_background(
+            frame, text, (10, h - 12 - 24 * (len(lines) - i)),
+            font_scale=0.55, color=(255, 255, 255), bg_color=(0, 0, 0), alpha=0.75, padding=5,
+        )
 
 
 def annotate_frame(
@@ -134,8 +151,8 @@ def annotate_frame(
     if show_email_sent:
         draw_text_with_background(
             annotated,
-            "Alert Sent",
-            (annotated.shape[1] - 110, 30),
+            "Violation Recorded",
+            (annotated.shape[1] - 170, 30),
             font_scale=0.5,
             color=(0, 255, 0),
             bg_color=(0, 0, 0),

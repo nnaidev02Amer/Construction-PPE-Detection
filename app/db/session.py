@@ -30,6 +30,8 @@ def _add_missing_columns(sync_conn) -> None:
     columns = {c["name"] for c in inspect(sync_conn).get_columns("violations")}
     if "track_id" not in columns:
         sync_conn.execute(text("ALTER TABLE violations ADD COLUMN track_id INTEGER"))
+    if "session_id" not in columns:
+        sync_conn.execute(text("ALTER TABLE violations ADD COLUMN session_id VARCHAR(40)"))
 
 
 async def init_db() -> None:

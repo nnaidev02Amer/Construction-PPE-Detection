@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # Model
     MODEL_PATH: str = "Model/ppe.pt"
     DETECTION_CONFIDENCE: float = 0.5
+    PPE_ITEM_CONFIDENCE: float = 0.3  # lower bar for Hardhat / Safety Vest detections
 
     # Person tracking (per-worker IDs and per-worker violations)
     ENABLE_TRACKING: bool = True
@@ -38,9 +39,13 @@ class Settings(BaseSettings):
 
     # Alert timing
     ALERT_COOLDOWN_SECONDS: int = 10
-    VIOLATION_PERSIST_SECONDS: int = 10
+    VIOLATION_PERSIST_SECONDS: float = 3  # a worker must stay non-compliant this long
 
-    # Email
+    # Email (optional; the app runs fine without it)
+    EMAIL_ENABLED: bool = True
+    EMAIL_NOTIFY_HELMET: bool = True
+    EMAIL_NOTIFY_VEST: bool = True
+    EMAIL_NOTIFY_COMBINED: bool = True
     SENDER_EMAIL: str = ""
     RECEIVER_EMAIL: str = ""
     EMAIL_PASSWORD: str = ""

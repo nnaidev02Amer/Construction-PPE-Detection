@@ -31,9 +31,15 @@ class Violation(Base):
     camera_id: Mapped[int] = mapped_column(Integer, ForeignKey("cameras.id"), nullable=False)
     violation_type: Mapped[str] = mapped_column(String(100), nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    # Local wall-clock time (not UTC) so daily/monthly reports match the user's calendar
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, server_default=func.now(), index=True
+    )
     frame_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     track_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # tracked worker ID
+    # Tracker IDs restart whenever a camera is started; session_id (camera start time)
+    # keeps "worker #3" of one session apart from "worker #3" of the next.
+    session_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     camera: Mapped["Camera"] = relationship("Camera", back_populates="violations")
@@ -51,3 +57,24 @@ class AlertLog(Base):
     error_msg: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     violation: Mapped["Violation"] = relationship("Violation", back_populates="alert_logs")
+
+
+class WorkerSighting(Base):
+    """One row per tracked worker per camera session; the denominator for compliance stats."""
+
+    __tablename__ = "worker_sightings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    camera_id: Mapped[int] = mapped_column(Integer, ForeignKey("cameras.id"), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    track_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+
+
+class AppSetting(Base):
+    """Settings edited from the dashboard (override .env values)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)

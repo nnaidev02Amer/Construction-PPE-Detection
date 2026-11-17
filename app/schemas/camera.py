@@ -3,13 +3,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CameraCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     source_type: Literal["webcam", "rtsp", "file"]
     source_uri: str = Field(..., min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def _webcam_needs_index(self) -> "CameraCreate":
+        if self.source_type == "webcam" and not self.source_uri.strip().isdigit():
+            raise ValueError("A webcam source must be a device number such as 0 or 1")
+        self.source_uri = self.source_uri.strip()
+        return self
 
 
 class CameraUpdate(BaseModel):
@@ -25,5 +32,6 @@ class CameraResponse(BaseModel):
     is_active: bool
     created_at: datetime
     is_running: bool = False
+    status: str = "stopped"  # stopped | running | no_signal
 
     model_config = {"from_attributes": True}
